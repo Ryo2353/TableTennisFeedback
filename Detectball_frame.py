@@ -7,7 +7,7 @@ import re
 # ============================================================
 # 設定
 # ============================================================
-IMAGE_FOLDER = r"frames_smash_0708"  # 例: r"C:\Users\xxx\images"
+IMAGE_FOLDER = r"frames_smash_5"  # 例: r"C:\Users\xxx\images"
 OUTPUT_FOLDER = r"output_detect_frame"  # 検出結果画像の保存先
 
 # ボール検出のフィルタ条件（Contourベース）
