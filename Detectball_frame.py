@@ -3,6 +3,7 @@ import numpy as np
 import glob
 import os
 import re
+import time
 
 # ============================================================
 # 設定
@@ -16,9 +17,8 @@ MAX_AREA = 4000     # 実測値(1608.5~2975.5)に余裕を持たせた上限
 MIN_CIRCULARITY = 0.3  # 円形度の下限（1に近いほど真円）
 MIN_BRIGHTNESS = 150   # ボールは白いはずなので、輝度が低いものは除外
 
-# ボールの映ってる範囲
-lower_frame = 271
-upper_frame = 285
+BALL_START = 271  # ボールが映っている範囲（映像ごとに書き換える）
+BALL_END = 285
 
 # ============================================================
 # 画像の読み込み
@@ -42,6 +42,8 @@ os.makedirs(DEBUG_FOLDER, exist_ok=True)
 # ============================================================
 ball_positions = []  # (フレーム番号, x, y) を記録
 area_list = []       # ← 追加：検出できた面積を記録
+
+start_time = time.time()
 
 for i, path in enumerate(image_paths):
     frame = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
@@ -133,6 +135,9 @@ for i, path in enumerate(image_paths):
     out_path = os.path.join(OUTPUT_FOLDER, f"result_{frame_num:04d}.jpg")
     cv2.imwrite(out_path, vis)
 
+end_time = time.time()
+elapsed = end_time - start_time
+
 # ============================================================
 # 結果サマリー
 # ============================================================
@@ -144,8 +149,6 @@ detected_frames = set(pos[0] for pos in ball_positions)
 print(f"検出できたフレーム数（ユニーク）: {len(detected_frames)}")
 print(f"検出された候補の総数（複数候補含む）: {len(ball_positions)}")
 
-BALL_START = 271  # ボールが映っている範囲（映像ごとに書き換える）
-BALL_END = 285
 ball_total = BALL_END - BALL_START + 1
 
 # ユニークなフレーム番号のうち、範囲内にあるものだけ数える
@@ -160,3 +163,6 @@ if area_list:
     print(f"検出できた面積: 最小={min(area_list):.1f}, 最大={max(area_list):.1f}, 平均={sum(area_list)/len(area_list):.1f}")
 else:
     print("検出できたフレームがありません")
+
+print(f"\n総処理時間: {elapsed:.3f}秒")
+print(f"1フレームあたり平均: {elapsed/len(image_paths)*1000:.2f}ms")
