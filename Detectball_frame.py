@@ -12,7 +12,7 @@ OUTPUT_FOLDER = r"output_detect_frame"  # 検出結果画像の保存先
 
 # ボール検出のフィルタ条件（Contourベース）
 MIN_AREA = 100      # これ未満の面積はノイズとみなす
-MAX_AREA = 99999     # 実測値(1608.5~2975.5)に余裕を持たせた上限
+MAX_AREA = 4000     # 実測値(1608.5~2975.5)に余裕を持たせた上限
 MIN_CIRCULARITY = 0.3  # 円形度の下限（1に近いほど真円）
 MIN_BRIGHTNESS = 150   # ボールは白いはずなので、輝度が低いものは除外
 
@@ -82,8 +82,7 @@ for i, path in enumerate(image_paths):
     # Contourベースでボール検出
     contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
-    best = None
-    best_area = -1
+    candidates = []  # このフレームで見つかった候補を全部ためる
 
     for cnt in contours:
         area = cv2.contourArea(cnt)
@@ -108,22 +107,21 @@ for i, path in enumerate(image_paths):
         if brightness < MIN_BRIGHTNESS:
             continue
 
-        # 複数候補がある場合、最も面積が大きいものを採用
-        if area > best_area:
-            best_area = area
-            best = (cx, cy, area, circularity, brightness)
+        candidates.append((cx, cy, area, circularity, brightness))
 
     # 検出結果を描画
     vis = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
-    if best is not None:
-        bx, by = int(best[0]), int(best[1])
-        ball_positions.append((frame_num, bx, by))
-        area_list.append(best[2])
-        cv2.circle(vis, (bx, by), 15, (0, 0, 255), 2)
-        cv2.putText(vis, f"Ball ({bx},{by})", (bx+10, by-10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-        print(f"フレーム {frame_num:04d}: ボール検出 ({bx}, {by}), 面積={best[2]:.1f}")
+    if len(candidates) > 0:
+        for cx, cy, area, circularity, brightness in candidates:
+            bx, by = int(cx), int(cy)
+            ball_positions.append((frame_num, bx, by, area, circularity))  # 候補ごとに全部記録
+            area_list.append(area)
+            cv2.circle(vis, (bx, by), 15, (0, 0, 255), 2)
+            cv2.putText(vis, f"({bx},{by})", (bx+10, by-10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        print(f"フレーム {frame_num:04d}: {len(candidates)}件検出 " +
+              ", ".join([f"({int(c[0])},{int(c[1])},面積={c[2]:.1f})" for c in candidates]))
     else:
         print(f"フレーム {frame_num:04d}: 未検出")
 
@@ -140,15 +138,23 @@ for i, path in enumerate(image_paths):
 # ============================================================
 print(f"\n--- 結果サマリー ---")
 print(f"総フレーム数: {len(image_paths)}")
-print(f"検出フレーム数（全体）: {len(ball_positions)}")
 
-ball_range = [pos for pos in ball_positions if lower_frame <= pos[0] <= upper_frame]
-false_positives = [pos for pos in ball_positions if pos[0] < lower_frame or pos[0] > upper_frame]
-ball_total = upper_frame - lower_frame + 1
+# フレーム番号だけを取り出し、重複を除いたユニークなフレーム数を数える
+detected_frames = set(pos[0] for pos in ball_positions)
+print(f"検出できたフレーム数（ユニーク）: {len(detected_frames)}")
+print(f"検出された候補の総数（複数候補含む）: {len(ball_positions)}")
 
-print(f"ボールあり範囲({lower_frame}-{upper_frame})での検出数: {len(ball_range)} / {ball_total}フレーム")
-print(f"ボールなし範囲での誤検出数: {len(false_positives)}")
-print(f"正検出率: {len(ball_range)/ball_total*100:.1f}%")
+BALL_START = 271  # ボールが映っている範囲（映像ごとに書き換える）
+BALL_END = 285
+ball_total = BALL_END - BALL_START + 1
+
+# ユニークなフレーム番号のうち、範囲内にあるものだけ数える
+ball_range_frames = set(f for f in detected_frames if BALL_START <= f <= BALL_END)
+false_positive_frames = set(f for f in detected_frames if f < BALL_START or f > BALL_END)
+
+print(f"ボールあり範囲({BALL_START}-{BALL_END})での検出フレーム数: {len(ball_range_frames)} / {ball_total}フレーム")
+print(f"ボールなし範囲での誤検出フレーム数: {len(false_positive_frames)}")
+print(f"正検出率: {len(ball_range_frames)/ball_total*100:.1f}%")
 
 if area_list:
     print(f"検出できた面積: 最小={min(area_list):.1f}, 最大={max(area_list):.1f}, 平均={sum(area_list)/len(area_list):.1f}")
