@@ -8,7 +8,7 @@
 
 ## 実行方法
 1. `frames_◯◯/` に連番jpg画像を置く
-2. コード内の `IMAGE_FOLDER = r"frames_◯◯"` を書き換える
+2. コード内の `IMAGE_FOLDER = r"frames_◯◯"`と`lower_frame,upper_frame` を書き換える
 3. `python Detectball_frame.py`
 4. 結果は `output_detect_frame/`(検出結果画像)、
    `output_detect_frame/debug/`(二値化後の差分画像)に出力される
