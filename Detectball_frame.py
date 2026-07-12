@@ -133,9 +133,12 @@ print(f"\n--- 結果サマリー ---")
 print(f"総フレーム数: {len(image_paths)}")
 print(f"検出フレーム数（全体）: {len(ball_positions)}")
 
-ball_range = [pos for pos in ball_positions if 244 <= pos[0] <= 261]
-false_positives = [pos for pos in ball_positions if pos[0] < 244 or pos[0] > 261]
-ball_total = 261 - 244 + 1
+lower_frame = 244
+upper_frame = 261
+
+ball_range = [pos for pos in ball_positions if lower_frame <= pos[0] <= upper_frame]
+false_positives = [pos for pos in ball_positions if pos[0] < lower_frame or pos[0] > upper_frame]
+ball_total = upper_frame - lower_frame + 1
 
 print(f"ボールあり範囲(244-261)での検出数: {len(ball_range)} / {ball_total}フレーム")
 print(f"ボールなし範囲での誤検出数: {len(false_positives)}")
