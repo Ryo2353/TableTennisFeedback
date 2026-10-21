@@ -46,9 +46,19 @@ MIN_BRIGHTNESS = 150
 # 何フレームごとに速度サマリーを表示するか
 REPORT_INTERVAL = 100
 
+# カメラの露光時間・ゲイン設定(フル解像度1440x1080時の仕様値)
+EXPOSURE_TIME_US = 1000.0  # 露光時間(マイクロ秒)
+GAIN_DB = 20.0              # ゲイン(dB)
+
+# 目視確認用のプレビューウィンドウを表示するか
+# True にすると、検出処理に画面表示の時間が追加でかかるため、fpsはさらに落ちます。
+# あくまで「ちゃんと検出できているか」を目で見て確認するためのモードです。
+SHOW_PREVIEW = True
+PREVIEW_WINDOW_NAME = "ball detection preview (qで終了)"
+
 # 出力フォーマット。お使いのpytelicamで Mono8 が使えない場合は
 # Bgr24 に変えて、後段で cv2.cvtColor(..., COLOR_BGR2GRAY) してください。
-OUTPUT_IMAGE_TYPE_NAME = "Mono8"
+OUTPUT_IMAGE_TYPE_NAME = "Bgr24"
 
 
 def open_camera():
@@ -61,6 +71,16 @@ def open_camera():
 
     cam_device = cam_system.create_device_object()
     cam_device.open()
+
+    # 露光時間・ゲインを仕様値に設定(GenAPI経由)
+    # ノード名は AcquisitionControl > ExposureTime, AnalogControl > Gain (どちらもFloat型)
+    try:
+        cam_device.genapi.set_float_value("ExposureTime", EXPOSURE_TIME_US)
+        cam_device.genapi.set_float_value("Gain", GAIN_DB)
+        print(f"露光時間: {EXPOSURE_TIME_US}us, ゲイン: {GAIN_DB}dB に設定しました")
+    except Exception as e:
+        print(f"警告: 露光時間・ゲインの設定に失敗しました({e})。デフォルト設定のまま続行します。")
+
     cam_device.cam_stream.open()
     cam_device.cam_stream.start()
     return cam_system, cam_device
@@ -173,6 +193,20 @@ def main():
                 # 必要な場合だけ有効化(頻度が高いと表示自体が重くなるので注意)
                 # print(", ".join([f"({int(c[0])},{int(c[1])})" for c in candidates]))
 
+            if SHOW_PREVIEW:
+                preview = cv2.cvtColor(mid_frame, cv2.COLOR_GRAY2BGR)
+                for cx, cy, area, circularity, brightness in candidates:
+                    bx, by = int(cx), int(cy)
+                    cv2.circle(preview, (bx, by), 15, (0, 0, 255), 2)
+                    cv2.putText(preview, f"({bx},{by})", (bx + 10, by - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                cv2.putText(preview, f"frame {frame_count} / detected {detected_count}",
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.imshow(PREVIEW_WINDOW_NAME, preview)
+                # 'q' キーで終了できるようにする(ウィンドウ表示中はこちらを使う)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    raise KeyboardInterrupt
+
             # ---- ③ 一定間隔で速度サマリーを表示 ----
             if frame_count % REPORT_INTERVAL == 0:
                 avg_capture_ms = (sum(capture_times) / len(capture_times)) * 1000
@@ -192,6 +226,8 @@ def main():
     finally:
         session_elapsed = time.time() - session_start
         close_camera(cam_system, cam_device)
+        if SHOW_PREVIEW:
+            cv2.destroyAllWindows()
 
         print("\n--- セッションサマリー ---")
         print(f"総フレーム数: {frame_count}")

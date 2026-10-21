@@ -2,3 +2,13 @@ frames_smash*/
 output_detect*/
 __pycache__/
 *.pyc
+
+# 撮影データ(画像が大量で重いので、git には入れない)
+data/
+
+# 結果フォルダの画像(npz・csv・json は小さいので記録する)
+results/**/*.png
+results/**/*.jpg
+
+# 一覧の出力(作業用)
+project_tree.txt
