@@ -41,7 +41,8 @@ PAT = re.compile(r"^(\d+)_bid(\d+)_")
 def crop_index(rec_dir, cam):
     """crops フォルダの画像を delta → パス の辞書にする"""
     with open(os.path.join(rec_dir, "session_info.json"), encoding="utf-8") as f:
-        first_bid = json.load(f)[cam]["first_bid"]
+        _info = json.load(f)
+        first_bid = min(_info["camera_a"]["first_bid"], _info["camera_b"]["first_bid"])   # 2台共通の基準(bid で組にする)
     idx = {}
     for p in glob.glob(os.path.join(rec_dir, cam, "crops", "*.png")):
         m = PAT.match(os.path.basename(p))

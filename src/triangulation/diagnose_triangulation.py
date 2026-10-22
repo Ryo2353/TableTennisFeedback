@@ -37,9 +37,25 @@ import numpy as np
 from triangulate import load_calibration, build_projection_matrices, triangulate, apply_table_transform
 
 
-def load_det(path):
+def load_det(path, base):
+    """カメラの番号(bid)で組にする。キーは「bid - 2台共通の基準bid」。
+    (以前は録画ごとの数え始め first_bid からの差 delta を使っていたが、
+     片方の録画開始が遅れると全体がずれるので、bid そのものに変えた。10/23)"""
     with open(path, encoding="utf-8") as f:
-        return {d["delta"]: d for d in json.load(f) if d.get("delta") is not None}
+        return {d["bid"] - base: d for d in json.load(f) if d.get("bid") is not None}
+
+
+def common_base(rec_dir):
+    info_path = os.path.join(rec_dir, "session_info.json")
+    if os.path.exists(info_path):
+        with open(info_path, encoding="utf-8") as f:
+            info = json.load(f)
+        return min(info["camera_a"]["first_bid"], info["camera_b"]["first_bid"])
+    bids = []
+    for cam in ("camera_a", "camera_b"):
+        with open(os.path.join(rec_dir, cam, "detections.json"), encoding="utf-8") as f:
+            bids += [d["bid"] for d in json.load(f) if d.get("bid") is not None]
+    return min(bids)
 
 
 def main():
@@ -48,14 +64,19 @@ def main():
         sys.exit(1)
     rec_dir, stereo_path, table_path = sys.argv[1:4]
 
-    det_a = load_det(os.path.join(rec_dir, "camera_a", "detections.json"))
-    det_b = load_det(os.path.join(rec_dir, "camera_b", "detections.json"))
+    base = common_base(rec_dir)
+    det_a = load_det(os.path.join(rec_dir, "camera_a", "detections.json"), base)
+    det_b = load_det(os.path.join(rec_dir, "camera_b", "detections.json"), base)
+    print(f"組み方: カメラの番号(bid)が同じコマ同士(基準bid {base})")
     common = sorted(set(det_a) & set(det_b))
     print(f"組になったコマ: {len(common)}")
     if not common:
         sys.exit(1)
 
     K1, dist1, K2, dist2, R, T = load_calibration(stereo_path)
+    _T = np.asarray(T, np.float64).reshape(3)
+    print(f"キャリブレーション: {stereo_path}(2台の距離 {np.linalg.norm(_T) * (1000 if np.linalg.norm(_T) < 10 else 1):.0f}mm)"
+          " ← 撮影した日のものか確認してください")
     P1, P2 = build_projection_matrices(K1, K2, R, T)
     pts1 = np.array([[det_a[d]["u"], det_a[d]["v"]] for d in common], np.float64)
     pts2 = np.array([[det_b[d]["u"], det_b[d]["v"]] for d in common], np.float64)
