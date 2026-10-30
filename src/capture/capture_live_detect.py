@@ -61,7 +61,7 @@ KERNEL = np.ones((3, 3), np.uint8)
 
 MAX_CANDIDATES = 5       # 1コマで残す候補の最大数(2台の組み合わせを後で選ぶため)
 QUEUE_MAX = 400          # 処理待ちの上限(1台あたり。フル解像度で約600MB)。超えたら「処理落ち」として捨てる
-CROP_HALF = 40           # 確認用の切り出し画像の半径(px、元画像の大きさで)
+CROP_HALF = 120          # 確認用の切り出し画像の半径(px、元画像の大きさで)。10/23 に 40→120(240×240)に拡大
 MAX_RECORD_SEC = 180     # 安全のための録画時間の上限
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -422,12 +422,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--scale", type=float, default=0.5, help="検出時の縮小率(0.5=半分、1.0=縮小なし)")
     parser.add_argument("--no-crops", action="store_true", help="確認用の切り出し画像を保存しない")
+    parser.add_argument("--crop-half", type=int, default=CROP_HALF,
+                        help=f"切り出し画像の半径(画素。既定 {CROP_HALF} → {2 * CROP_HALF}×{2 * CROP_HALF})")
+    parser.add_argument("--min-circ", type=float, default=MIN_CIRCULARITY,
+                        help=f"円形度の下限(既定 {MIN_CIRCULARITY}。10/23 hitball6 で 0.1 にすると途切れが減った)")
     args = parser.parse_args()
 
     session_dir = os.path.join(OUTPUT_ROOT, datetime.now().strftime("%Y%m%d_%H%M%S"))
     os.makedirs(session_dir, exist_ok=True)
     print(f"保存先セッションフォルダ: {session_dir}")
-    print(f"検出の縮小率: {args.scale}  切り出し画像: {'保存しない' if args.no_crops else '保存する'}")
+    globals()["MIN_CIRCULARITY"] = args.min_circ
+    globals()["CROP_HALF"] = args.crop_half
+    print(f"検出の縮小率: {args.scale}  円形度の下限: {args.min_circ}  切り出しの大きさ: {2 * args.crop_half}画素  切り出し画像: {'保存しない' if args.no_crops else '保存する'}")
 
     cam_system = pytelicam.get_camera_system()
     num = cam_system.get_num_of_cameras()
@@ -461,7 +467,7 @@ def main():
             cam_b.wait_processed()
             sa, sb = cam_a.summary(), cam_b.summary()
             pa, pb = cam_a.save_results(), cam_b.save_results()
-            info = {"record_index": record_count, "scale": args.scale, "camera_a": sa, "camera_b": sb}
+            info = {"record_index": record_count, "scale": args.scale, "min_circ": args.min_circ, "camera_a": sa, "camera_b": sb}
             with open(os.path.join(rec_dir, "session_info.json"), "w", encoding="utf-8") as f:
                 json.dump(info, f, ensure_ascii=False, indent=2)
             print("--- まとめ ---")

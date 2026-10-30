@@ -27,7 +27,7 @@ import re
 import cv2
 import numpy as np
 
-CELL = 120   # 切り出し画像1枚の表示の大きさ(画素)
+CELL = 240   # 切り出し画像1枚の表示の大きさ(画素)。10/23 切り出しを240×240に広げたので合わせた
 PAT = re.compile(r"^(\d+)_bid(\d+)_")
 
 
@@ -53,7 +53,7 @@ def tile(path):
     if img.ndim == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     img = cv2.resize(img, (CELL, CELL), interpolation=cv2.INTER_NEAREST)
-    cv2.drawMarker(img, (CELL // 2, CELL // 2), (0, 0, 255), cv2.MARKER_CROSS, 16, 1)
+    cv2.drawMarker(img, (CELL // 2, CELL // 2), (0, 0, 255), cv2.MARKER_CROSS, 24, 2)
     return img
 
 
