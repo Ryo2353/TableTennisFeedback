@@ -9,6 +9,10 @@ track_balls.py の出力(軌道ごとの3D位置)から、1球ごとの着地点
     3. X, Y は同じ3点の直線(時間の1次式)で、その瞬間の位置を求める。
     4. 計測範囲(X 0〜1165、Y 0〜840)の中で弾んだ最初の所を、その球の着地点とする。
        範囲の外で弾んだだけの球、弾んだ所がない球は「着地点なし」として画面に出す。
+    5. 選手が打った球はネット側からエンドライン側(Y が減る向き)へ飛んでくるので、弾む前に
+       Y が増える向き(マシン側から)に飛んでいた球は、跳ね返りなどとみなして数えない
+       (10/31 rec03: カメラのポールで跳ね返った球がマシン側から入ってきた)。
+       --all-directions を付けると、この条件を外す。
 
 fit_bounce.py との違い:
     fit_bounce.py は「コマが10以上空いたら別の球」で区切っていたので、2球が同時に飛ぶと区切れなかった。
@@ -59,6 +63,7 @@ def main():
     ap.add_argument("tracks_csv")
     ap.add_argument("out_csv", nargs="?", default=None)
     ap.add_argument("--z-bounce", type=float, default=50.0, help="Z がこれ(mm)以下の谷を「弾んだ所」とみなす")
+    ap.add_argument("--all-directions", action="store_true", help="飛んできた向きで除かない")
     a = ap.parse_args()
     out = a.out_csv or os.path.splitext(a.tracks_csv)[0] + "_landings.csv"
 
@@ -78,13 +83,23 @@ def main():
                 and (i == 0 or z[i] <= z[i - 1]) and (i == len(z) - 1 or z[i] <= z[i + 1])]
         found = None
         outside = []
+        wrong_dir = None
         for i in mins:
             t_star, p = bounce_at(ts, X, i)
             if in_table(p):
+                # 弾む前の点(なければ弾んだ後の点)で、Y方向の速さを見る
+                seg = slice(max(0, i - 10), i + 1) if i >= 2 else slice(i, min(len(ts), i + 6))
+                vy = np.polyfit(ts[seg], X[seg, 1], 1)[0] if len(ts[seg]) >= 2 else 0.0
+                if vy > 0 and not a.all_directions:
+                    wrong_dir = (p, vy)
+                    break
                 found = (t_star, p, z[i])
                 break
             outside.append(p)
-        if found:
+        if wrong_dir:
+            p, vy = wrong_dir
+            skipped.append((tr, f"マシン側から飛んできた球(跳ね返りなど)。弾んだ所 X {p[0]:.0f}, Y {p[1]:.0f}、Yの速さ +{vy / 1000:.1f}m/s"))
+        elif found:
             results.append((tr, found[0], found[1], found[2]))
         elif outside:
             p = outside[0]

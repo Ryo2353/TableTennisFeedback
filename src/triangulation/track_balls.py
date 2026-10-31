@@ -19,7 +19,12 @@ triangulate_trajectory.py との違い:
        予想に近い点から順に、軌道につなぐ。つなげる距離の上限は
            点が1つだけの軌道: --gate-new(標準 80mm)+ --speed-new(標準 50mm)× 空いたコマ数
            点が2つ以上の軌道: --gate(標準 40mm)+ --gate-grow(標準 15mm)× 空いたコマ数
-       (バウンドの瞬間は予想が外れるので、少し余裕を持たせている)
+       速さは直前の最大4点に直線を当てはめて求める(1点のぶれに強くするため)。
+       予想した高さがボールの半径(--ball-r、標準 20mm)より低くなるときは、「台で弾んで上向きに
+       跳ね返った位置」と「弾まずにそのまま落ちていく位置」(台の外・エッジに当たった球)の両方を予想し、
+       近い方とつなぐ。台の近く(直前の高さ 100mm 以下)では、
+       弾んで速さや向きが変わる分、つなげる距離に --gate-bounce(標準 40mm)を足す。
+       (弾んだところで1球が2本に切れるのを防ぐため。10/31 rec03 の7球目、rec04 の4球目)
     3. どの軌道にもつながらなかった点からは、新しい軌道を始める。
     4. --max-gap(標準 10)コマより長く点が来なかった軌道は終わりにする。
     5. 最後に、点が --min-points(標準 10)より少ない軌道は捨てる(誤検出・ありえない点)。
@@ -97,19 +102,38 @@ class Track:
         Track._next_id += 1
         self.ds, self.Xs, self.errs = [d], [X], [e]
 
-    def predict(self, d):
+    def predict(self, d, ball_r):
+        """予想位置の候補の一覧と、空いたコマ数を返す。
+        速さは直前の最大4点(8コマ以内)に直線を当てはめて求める(1点だけ位置がぶれても予想が大きく狂わないように)。
+        台の面(ボールの中心で ball_r の高さ)より下になる予想のときは、
+        「弾んで上向きに跳ね返った」と「弾まずにそのまま落ちていく」(台の端の外・エッジに当たった球)の
+        両方を候補にする。点はどちらか近い方とつなぐ。"""
         dt = d - self.ds[-1]
         if len(self.ds) < 2:
-            return self.Xs[-1], dt
-        v = (self.Xs[-1] - self.Xs[-2]) / (self.ds[-1] - self.ds[-2])
+            return [self.Xs[-1]], dt
+        ds = np.array(self.ds[-4:], float)
+        Xs = np.array(self.Xs[-4:])
+        keep = ds >= ds[-1] - 8
+        ds, Xs = ds[keep], Xs[keep]
+        if len(ds) >= 3:
+            v = np.array([np.polyfit(ds, Xs[:, k], 1)[0] for k in range(3)])
+        else:
+            v = (self.Xs[-1] - self.Xs[-2]) / (self.ds[-1] - self.ds[-2])
         p = self.Xs[-1] + v * dt
         p = p + np.array([0.0, 0.0, -0.5 * G_MM_PER_FRAME2 * dt * dt])
-        return p, dt
+        if p[2] < ball_r and v[2] < 0:
+            q = p.copy()
+            q[2] = 2 * ball_r - p[2]
+            return [q, p], dt
+        return [p], dt
 
     def gate(self, dt, a):
         if len(self.ds) < 2:
             return a.gate_new + a.speed_new * dt
-        return a.gate + a.gate_grow * dt
+        g = a.gate + a.gate_grow * dt
+        if self.Xs[-1][2] <= 100.0:
+            g += a.gate_bounce
+        return g
 
     def add(self, d, X, e):
         self.ds.append(d)
@@ -130,10 +154,10 @@ def track(frames, a):
         # 予想に近い順に、軌道と点をつなぐ(1対1)
         pairs = []
         for ti, t in enumerate(active):
-            p, dt = t.predict(d)
+            ps, dt = t.predict(d, a.ball_r)
             g = t.gate(dt, a)
             for pi, (X, e, *_ ) in enumerate(pts):
-                dist = float(np.linalg.norm(X - p))
+                dist = min(float(np.linalg.norm(X - p)) for p in ps)
                 if dist <= g:
                     pairs.append((dist, ti, pi))
         pairs.sort()
@@ -209,6 +233,8 @@ def main():
     ap.add_argument("--gate-grow", type=float, default=15.0)
     ap.add_argument("--gate-new", type=float, default=80.0)
     ap.add_argument("--speed-new", type=float, default=50.0)
+    ap.add_argument("--ball-r", type=float, default=20.0, help="ボールの半径(mm)。弾む高さ(中心)")
+    ap.add_argument("--gate-bounce", type=float, default=40.0, help="台の近くでつなげる距離に足す余裕(mm)")
     ap.add_argument("--max-gap", type=int, default=10, help="これより長く(コマ)点が来なかった軌道は終わりにする")
     ap.add_argument("--min-points", type=int, default=10, help="点がこれより少ない軌道は捨てる")
     ap.add_argument("--no-auto-shift", action="store_true", help="2台のコマのずれを自動で直さない")
