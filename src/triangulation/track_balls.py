@@ -46,10 +46,13 @@ import argparse
 import csv
 import json
 import os
+import sys
 
 import cv2
 import numpy as np
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from table_config import get_table
 from triangulate import load_calibration, build_projection_matrices, triangulate, apply_table_transform
 from triangulate_trajectory import (load_detections_by_bid, common_base_bid, offset_scan,
                                     candidates_of, reproj_errors)
@@ -181,7 +184,7 @@ def track(frames, a):
 
 
 # ---------------- 図 ----------------
-def plot(keep, drop, out_png, base_offset):
+def plot(keep, drop, out_png, base_offset, table_w, table_l):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -204,7 +207,7 @@ def plot(keep, drop, out_png, base_offset):
         ax1.plot(X[:, 0], X[:, 1], "-o", ms=3, lw=1, c=c, label=f"軌道{k + 1}({len(t.ds)}点)")
         ax2.plot(ts, X[:, 2], "-o", ms=3, lw=1, c=c)
         ax2.annotate(str(k + 1), (ts[0], X[0, 2]), fontsize=10, color=c)
-    ax1.add_patch(plt.Rectangle((0, 0), 1165, 840, fill=False, lw=2, ec="#333333"))
+    ax1.add_patch(plt.Rectangle((0, 0), table_w, table_l, fill=False, lw=2, ec="#333333"))
     ax1.set_xlabel("X (mm) 幅方向")
     ax1.set_ylabel("Y (mm) 長さ方向")
     ax1.set_title("真上から見た位置(枠 = 計測範囲、灰色の× = 捨てた点)")
@@ -238,6 +241,7 @@ def main():
     ap.add_argument("--max-gap", type=int, default=10, help="これより長く(コマ)点が来なかった軌道は終わりにする")
     ap.add_argument("--min-points", type=int, default=10, help="点がこれより少ない軌道は捨てる")
     ap.add_argument("--no-auto-shift", action="store_true", help="2台のコマのずれを自動で直さない")
+    ap.add_argument("--table", default=None, help="台の名前(src/table_config.py)。図の枠だけに使う")
     a = ap.parse_args()
 
     det_a_path = os.path.join(a.rec_dir, "camera_a", "detections.json")
@@ -297,7 +301,8 @@ def main():
                 w.writerow([k + 1, d, det_a[d].get("ts"), det_b[d].get("ts"),
                             f"{X[0]:.2f}", f"{X[1]:.2f}", f"{X[2]:.2f}", f"{e:.2f}"])
     png = os.path.splitext(a.out_csv)[0] + ".png"
-    plot(keep, drop, png, 0)
+    table_w, table_l, _ = get_table(a.table)
+    plot(keep, drop, png, 0, table_w, table_l)
     print(f"保存: {a.out_csv}\n保存: {png}")
 
 

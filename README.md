@@ -11,6 +11,8 @@ table-tennis-feedback/
   README.md           このファイル
   NOTES.md            開発メモ(7月ごろ)
   src/
+    run_set.py        撮影の後を1回の操作でまとめる(追跡 → 着地点 → ヒートマップ)
+    table_config.py   台の計測範囲の設定(新しい台にするときはここの CURRENT を変える)
     capture/          撮影
       capture_live_detect.py   撮りながら検出し、ボールの位置だけ記録する(本番用)
       capture_dual_diag.py     全コマを画像で保存する(確認・調査用。1回500枚まで)
@@ -49,6 +51,29 @@ table-tennis-feedback/
 3. **キャリブレーション結果は、必ずその撮影日の `results/YYYYMMDD/` に出力する。** プロジェクトのいちばん上に置かない。
 4. **カメラを置き直したら、キャリブレーション(B. 2台の位置関係、C. 台の位置)はやり直す。** 別の日の stereo_result.npz を使わない。
 5. **消す前に git に記録しておく。** 撮影データ(data/)は git に入らないので、消す・移すときは別の場所に控えがあるか確認する。
+
+## 本番の流れ(撮影 → 着地点 → 投影を1回の操作で)
+
+```
+python src/capture/capture_live_detect.py --min-circ 0.1 --calib results/YYYYMMDD --projector results/YYYYMMDD/projector_transform.npz
+```
+
+- 1セットは `r` で開始してから止めるまでの1回。止めると自動で追跡 → 着地点 → 投影まで進む。
+- 投影の画面で Esc または q を押すと閉じて、カメラの画面に戻る。処理と投影の間は `r` も `q` も効かない。
+- `--projector` を省くと投影せず、画像の保存だけをする。`--calib` がなければ今までと同じ動き。
+- 録画は安全のため 180 秒(`MAX_RECORD_SEC`)で自動的に止まる。
+
+## 撮影の後の処理(1回の操作)
+
+自動の処理が止まったときや、検出結果から処理し直すときは、次のコマンドで動かす。
+
+```
+python src/run_set.py <録画フォルダ> [<録画フォルダ> ...] --calib results/YYYYMMDD --projector results/YYYYMMDD/projector_transform.npz
+```
+
+- 録画を複数渡すと、着地点を1つにまとめて1枚のヒートマップにする。
+- `--projector` を省くと投影せず、台の座標のままの画像だけを保存する。`--no-show` は画面に映さない。
+- 結果は毎回 `results/YYYYMMDD/set_日付_時刻/` に新しく作るので、前の結果を上書きしない。
 
 ## キャリブレーション結果の見分け方
 

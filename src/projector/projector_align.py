@@ -11,6 +11,8 @@ project_heatmap.py はこれを使って、ヒートマップを台の正しい�
 使い方:
     python projector_align.py --out results\\YYYYMMDD\\projector_transform.npz
 
+    台の大きさは src/table_config.py の設定を使う(--table で指定もできる)。
+
     プロジェクターの位置・解像度は自動で調べる(screeninfo が入っていれば)。
     うまくいかないときは指定する:
     python projector_align.py --out ... --screen-x 1920 --screen-y 0 --width 1920 --height 1080
@@ -29,14 +31,14 @@ project_heatmap.py はこれを使って、ヒートマップを台の正しい�
     Esc                保存せずに終了
 
 ※ 4隅の座標(mm)は visualize_heatmap.py と同じ卓球台座標系:
-   X: 0〜1165(幅方向)、Y: 0〜840(長さ方向)
+   X は幅方向、Y は長さ方向。研究室のプリントなら X: 0〜1165、Y: 0〜840
 
 プロジェクターが計測範囲の全体を覆えないとき(--area):
     印を合わせる範囲を、計測範囲の一部にできる。印は「プリントの線の交点」など、
     台の上で場所がはっきり分かる点にすること。
       --area full    計測範囲全体(標準)
-      --area left    センターラインより左半分 (X 0〜582.5)
-      --area right   センターラインより右半分 (X 582.5〜1165)
+      --area left    センターラインより左半分
+      --area right   センターラインより右半分
       --area x0,y0,x1,y1   任意の長方形(mm)。例: --area 0,0,582.5,840
     変換は台の座標全体に対して作られるので、映る範囲が狭いだけで位置は正しい。
     プロジェクターの画面に入らない部分のヒートマップは映らない。
@@ -44,19 +46,25 @@ project_heatmap.py はこれを使って、ヒートマップを台の正しい�
 
 import argparse
 import os
+import sys
 
 import cv2
 import numpy as np
 
-TABLE_W = 1165.0
-TABLE_L = 840.0
-# 卓球台座標(mm)の4隅。1=原点角 から反時計回り
-TABLE_CORNERS_MM = np.array([[0, 0], [TABLE_W, 0], [TABLE_W, TABLE_L], [0, TABLE_L]], dtype=np.float32)
-AREA_PRESETS = {
-    "full": (0.0, 0.0, TABLE_W, TABLE_L),
-    "left": (0.0, 0.0, TABLE_W / 2, TABLE_L),
-    "right": (TABLE_W / 2, 0.0, TABLE_W, TABLE_L),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from table_config import get_table
+
+
+def set_table(name):
+    """台の大きさを決める。TABLE_W, TABLE_L, 4隅(1=原点角 から反時計回り)、--area の名前を作る"""
+    global TABLE_W, TABLE_L, TABLE_CORNERS_MM, AREA_PRESETS
+    TABLE_W, TABLE_L = get_table(name)[:2]
+    TABLE_CORNERS_MM = np.array([[0, 0], [TABLE_W, 0], [TABLE_W, TABLE_L], [0, TABLE_L]], dtype=np.float32)
+    AREA_PRESETS = {
+        "full": (0.0, 0.0, TABLE_W, TABLE_L),
+        "left": (0.0, 0.0, TABLE_W / 2, TABLE_L),
+        "right": (TABLE_W / 2, 0.0, TABLE_W, TABLE_L),
+    }
 
 
 def area_corners(area):
@@ -134,7 +142,9 @@ def main():
     parser.add_argument("--height", type=int, default=0)
     parser.add_argument("--coarse-step", type=int, default=20, help="矢印キーで動かす画素数")
     parser.add_argument("--area", default="full", help="印を合わせる範囲: full / left / right / x0,y0,x1,y1(mm)")
+    parser.add_argument("--table", default=None, help="台の名前(src/table_config.py)。省略すると今の設定")
     args = parser.parse_args()
+    set_table(args.table)
     corners_mm = area_corners(args.area)
 
     x, y, w, h = detect_projector(args)

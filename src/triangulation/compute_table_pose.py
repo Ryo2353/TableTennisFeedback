@@ -15,7 +15,8 @@ solvePnPで「カメラA基準の座標系」→「卓球台基準の座標系�
           2. エンドライン右
           3. プリント切れ目・左
           4. プリント切れ目・右
-      4隅の実座標(mm)は、このファイル内の TABLE_CORNERS_MM を編集すること。
+      4隅の実座標(mm)は src/table_config.py の設定から作る(--table で台を指定できる)。
+      新しい台では 3, 4 はネットの真下の左右の端になる。
       (全点Z=0の平面上なので、奥行き方向の姿勢誤差に弱い)
 
   (B) 既知点フォルダ + CSV(--known-folder / --known-csv)
@@ -82,17 +83,19 @@ import json
 import numpy as np
 import cv2
 
-# 卓球台(プリント)の実座標(mm)。原点=マシン側エンドライン左角。
-# X = 116.5cm(プリント横幅)、Y = 84cm(原点からプリント切れ目までの距離)、
-# プリント左端は原点に一致、という実測値に基づく。
-TABLE_CORNERS_MM = np.array([
-    [0.0, 0.0, 0.0],        # 1. エンドライン左(原点)
-    [1165.0, 0.0, 0.0],     # 2. エンドライン右
-    [0.0, 840.0, 0.0],      # 3. プリント切れ目・左
-    [1165.0, 840.0, 0.0],   # 4. プリント切れ目・右
-], dtype=np.float64)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from table_config import get_table
 
-CORNER_LABELS = ["エンドライン左", "エンドライン右", "プリント切れ目・左", "プリント切れ目・右"]
+def table_corners(table_name):
+    """卓球台の4隅の実座標(mm)と名前。原点=マシン側エンドライン左角。大きさは table_config.py"""
+    w, l, far = get_table(table_name)
+    corners = np.array([
+        [0.0, 0.0, 0.0],   # 1. エンドライン左(原点)
+        [w, 0.0, 0.0],     # 2. エンドライン右
+        [0.0, l, 0.0],     # 3. 遠い側の辺・左
+        [w, l, 0.0],       # 4. 遠い側の辺・右
+    ], dtype=np.float64)
+    return corners, ["エンドライン左", "エンドライン右", f"{far}・左", f"{far}・右"]
 
 
 def pop_option(args, flag):
@@ -157,6 +160,8 @@ def main():
     only_ids = set(x.strip() for x in ids_str.split(",")) if ids_str else None
     extra_folder, args = pop_option(args, "--extra-folder")
     extra_csv, args = pop_option(args, "--extra-csv")
+    table_name, args = pop_option(args, "--table")
+    TABLE_CORNERS_MM, CORNER_LABELS = table_corners(table_name)
 
     if calib_path is None or out_path is None:
         print(__doc__)

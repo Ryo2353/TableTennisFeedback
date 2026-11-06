@@ -19,6 +19,8 @@
     --outline          台の計測範囲の枠を薄く映す(位置合わせの確認用)
     --save out.png     映す画像をファイルにも保存する(家での確認用)
     --no-show          画面に映さない(--save と組み合わせて、家で画像だけ作るとき)
+                       このときは --transform を省略でき、台の座標のままの画像だけを保存する
+    --table half       台の名前(src/table_config.py)。省略すると今の設定
     --test-pattern     ヒートマップの代わりに、位置確認用の目盛り(10cmごとの格子と数字)を映す。
                        着地点CSVは要らない。物差しで「X=50cmの線が、原点角から50cmの所に
                        映っているか」を確かめる。
@@ -30,12 +32,15 @@
 import argparse
 import csv
 import os
+import sys
 
 import cv2
 import numpy as np
 
-TABLE_W = 1165   # mm(X: 幅方向)
-TABLE_L = 840    # mm(Y: 長さ方向)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from table_config import get_table
+
+TABLE_W, TABLE_L = (int(v) for v in get_table()[:2])   # mm(X: 幅方向、Y: 長さ方向)
 HUE_BGR = np.array([0, 140, 255], np.float32)      # オレンジ(1つの色相)
 TOP_BGR = np.array([150, 225, 255], np.float32)    # いちばん多い所は少し明るく(同じ系統の色)
 CUTOFF = 0.05     # 最大の5%未満は真っ黒にする(うっすら全体が光るのを防ぐ)
@@ -122,14 +127,20 @@ def draw_labels(proj_img, labels, H):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("csv", nargs="?", default=None, help="着地点CSV(x_mm, y_mm の列)")
-    parser.add_argument("--transform", required=True, help="projector_align.py で作った projector_transform.npz")
+    parser.add_argument("--transform", default=None, help="projector_align.py で作った projector_transform.npz")
     parser.add_argument("--bandwidth", type=float, default=60.0)
     parser.add_argument("--points", action="store_true")
     parser.add_argument("--outline", action="store_true")
     parser.add_argument("--save", default=None)
     parser.add_argument("--no-show", action="store_true")
     parser.add_argument("--test-pattern", action="store_true")
+    parser.add_argument("--table", default=None, help="台の名前(src/table_config.py)")
     args = parser.parse_args()
+
+    global TABLE_W, TABLE_L
+    TABLE_W, TABLE_L = (int(v) for v in get_table(args.table)[:2])
+    if args.transform is None and not (args.no_show and args.save):
+        parser.error("--transform を指定してください(省略できるのは --save と --no-show を付けたときだけ)")
 
     if not args.test_pattern:
         if args.csv is None:
@@ -140,17 +151,24 @@ def main():
         if (~inside).any():
             print(f"  (計測範囲の外の点 {int((~inside).sum())}個は映りません)")
 
-    tf = np.load(args.transform)
-    H = tf["H"]
-    w, h = (int(v) for v in tf["size"])
-    sx, sy = (int(v) for v in tf["screen_pos"])
-
     labels = None
     if args.test_pattern:
         table_img, labels = render_test_pattern()
         print("位置確認用の目盛りを映します(数字は原点角からのcm。赤丸が原点角)")
     else:
         table_img = render_table_image(xs, ys, args.bandwidth, args.points, args.outline)
+    if args.transform is None:
+        # プロジェクターの位置合わせがまだないとき: 台の座標のままの画像だけを保存する
+        base, ext = os.path.splitext(args.save)
+        os.makedirs(os.path.dirname(os.path.abspath(args.save)), exist_ok=True)
+        cv2.imwrite(base + "_table" + ext, table_img)
+        print(f"保存しました: {base}_table{ext}(台の座標のままの画像)")
+        return
+
+    tf = np.load(args.transform)
+    H = tf["H"]
+    w, h = (int(v) for v in tf["size"])
+    sx, sy = (int(v) for v in tf["screen_pos"])
     proj_img = cv2.warpPerspective(table_img, H, (w, h), flags=cv2.INTER_LINEAR,
                                    borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
     if labels:

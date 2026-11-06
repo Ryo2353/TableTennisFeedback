@@ -26,6 +26,15 @@
     python capture_live_detect.py --scale 1.0     # フル解像度で検出(元と同じ。重い)
     python capture_live_detect.py --no-crops      # 確認用の切り出し画像を保存しない
 
+本番(撮影 → 着地点 → 投影を1回の操作で。プロジェクトのいちばん上のフォルダで):
+    python src/capture/capture_live_detect.py --min-circ 0.1 --calib results/YYYYMMDD --projector results/YYYYMMDD/projector_transform.npz
+
+    --calib を付けると、'r' で止めたときに自動で run_set.py(追跡 → 着地点 → ヒートマップ)を動かす。
+    1セットは 'r' で開始してから止めるまでの1回。ヒートマップは投影の画面で Esc または q を押すと閉じ、
+    カメラの画面に戻って次のセットを始められる。処理と投影の間は 'r' も 'q' も効かない。
+    --projector を省くと投影せず、画像の保存だけをする。--calib がなければ今までと同じ動きをする。
+    カメラの取得エラーで止まったときは、途中までのヒートマップを映さないよう、自動処理はしない。
+
 キー操作:
     'r' : 録画(検出)の開始/停止
     'q' : 終了
@@ -37,6 +46,8 @@ import argparse
 import json
 import os
 import queue
+import subprocess
+import sys
 import threading
 import time
 from datetime import datetime
@@ -66,6 +77,10 @@ MAX_RECORD_SEC = 180     # 安全のための録画時間の上限
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "..", "data", "captures"))
+_SRC_DIR = os.path.normpath(os.path.join(_SCRIPT_DIR, ".."))
+RUN_SET = os.path.join(_SRC_DIR, "run_set.py")
+sys.path.insert(0, _SRC_DIR)
+from run_set import check_calib
 
 
 def detect_ball(prev, cur, nxt, scale):
@@ -418,6 +433,27 @@ def make_display(frame, bid, last_det, label, recording):
     return img
 
 
+def run_after_stop(rec_dir, args):
+    """止めた後の処理(run_set.py)を動かし、終わるまで待つ。カメラの画面が応答なしにならないよう、
+    待つ間も画面の処理は回す(キーは無視する)。失敗しても撮影は続けられるようにする。"""
+    cmd = [sys.executable, RUN_SET, rec_dir, "--calib", args.calib]
+    if args.projector:
+        cmd += ["--projector", args.projector]
+    if args.table:
+        cmd += ["--table", args.table]
+    if args.points:
+        cmd.append("--points")
+    if args.outline:
+        cmd.append("--outline")
+    print("自動で処理します(終わるまで 'r' と 'q' は効きません)")
+    proc = subprocess.Popen(cmd)
+    while proc.poll() is None:
+        cv2.waitKey(50)
+    if proc.returncode != 0:
+        print("[警告] 自動の処理が途中で止まりました。検出結果は残っています。あとで次のコマンドで動かせます:")
+        print("  python src/run_set.py " + " ".join(cmd[2:]))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--scale", type=float, default=0.5, help="検出時の縮小率(0.5=半分、1.0=縮小なし)")
@@ -426,7 +462,17 @@ def main():
                         help=f"切り出し画像の半径(画素。既定 {CROP_HALF} → {2 * CROP_HALF}×{2 * CROP_HALF})")
     parser.add_argument("--min-circ", type=float, default=MIN_CIRCULARITY,
                         help=f"円形度の下限(既定 {MIN_CIRCULARITY}。10/23 hitball6 で 0.1 にすると途切れが減った)")
+    parser.add_argument("--calib", default=None,
+                        help="stereo_result.npz と table_transform.npz のフォルダ。指定すると止めたときに自動で処理する")
+    parser.add_argument("--projector", default=None, help="projector_transform.npz。省略すると投影しない")
+    parser.add_argument("--table", default=None, help="台の名前(src/table_config.py)。省略すると今の設定")
+    parser.add_argument("--points", action="store_true", help="着地点そのものも重ねて映す")
+    parser.add_argument("--outline", action="store_true", help="計測範囲の枠を映す")
     args = parser.parse_args()
+    if args.calib:
+        check_calib(args.calib, args.projector, args.table)   # 撮り始めてから気づかないよう、最初に確かめる
+    elif args.projector or args.table or args.points or args.outline:
+        parser.error("--projector などは --calib と一緒に指定してください")
 
     session_dir = os.path.join(OUTPUT_ROOT, datetime.now().strftime("%Y%m%d_%H%M%S"))
     os.makedirs(session_dir, exist_ok=True)
@@ -476,6 +522,11 @@ def main():
                       f"検出{s['detected_frames']}コマ  コマ落ち{s['drop_count']}  処理落ち{s['overflow_count']}  "
                       f"処理待ちの最大{s['max_queue']}  検出の平均{s['avg_detect_ms']}ms/コマ")
             print(f"検出結果: {pa}\n          {pb}\n")
+            if args.calib:
+                if cam_a.capture_alive and cam_b.capture_alive:
+                    run_after_stop(rec_dir, args)
+                else:
+                    print("[警告] カメラの取得が止まったので、自動の処理はしません。")
 
         while True:
             now = time.time()
